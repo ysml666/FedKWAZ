@@ -7,7 +7,8 @@ import numpy as np
 import time
 import torch.nn.functional as F
 from flcore.clients.clientbase import Client, load_item, save_item
-
+from skimage.segmentation import slic
+from skimage.util import img_as_float
 
 
 class clientKWAZ(Client):
@@ -19,7 +20,7 @@ class clientKWAZ(Client):
         self.T = 4.0
         self.loss_mse = nn.MSELoss()
 
-        self.mix_alpha = 0.1
+        self.hapm_alpha = 0.1
         self.patch_size = 16
         self.updata_epoch = 30
 
@@ -38,12 +39,12 @@ class clientKWAZ(Client):
         for p_s in patchs:
             self.ps.append(int(p_s))
 
-        self.mixalpha = self.mix_alpha
-        self.mixbeta = self.mix_alpha
-        self.mixbeta_g = self.mix_alpha
-        self.mixpatch_size = self.patch_size
-        self.mixpatchb_size = self.patch_size
-        self.mixpatchb_size_g = self.patch_size
+        self.hapmalpha = self.hapm_alpha
+        self.hapmbeta = self.hapm_alpha
+        self.hapmbeta_g = self.hapm_alpha
+        self.hapmpatch_size = self.patch_size
+        self.hapmpatchb_size = self.patch_size
+        self.hapmpatchb_size_g = self.patch_size
 
     def train(self, k):
         trainloader = self.load_train_data()
@@ -59,9 +60,9 @@ class clientKWAZ(Client):
             max_local_epochs = np.random.randint(1, max_local_epochs // 2)
 
         if k % self.updata_epoch == 0:
-            self.mixalpha, self.mixpatch_size = self.search_alpha(model, global_model, trainloader)
-            self.mixbeta, self.mixpatchb_size = self.search_beta(model, global_model, trainloader)
-            self.mixbeta_g, self.mixpatchb_size_g = self.search_beta(global_model, model, trainloader)
+            self.hapmalpha, self.hapmpatch_size = self.search_alpha(model, global_model, trainloader)
+            self.hapmbeta, self.hapmpatchb_size = self.search_beta(model, global_model, trainloader)
+            self.hapmbeta_g, self.hapmpatchb_size_g = self.search_beta(global_model, model, trainloader)
 
         model.train()
         global_model.train()
@@ -152,31 +153,31 @@ class clientKWAZ(Client):
                 mset = self.loss_mse(rep, rep_g)
                 loss_g = mset + loss_kl_g + loss_ce_g
 
-                mix_input = self.hapm(x, self.mixalpha, self.mixpatch_size)
-                mixrep = model.base(mix_input)
+                hapm_input = self.hapm(x, self.hapmalpha, self.hapmpatch_size)
+                hapmrep = model.base(hapm_input)
                 with torch.no_grad():
-                    mixrep_g = global_model.base(mix_input)
-                loss_rep1 = self.loss_mse(mixrep_g, mixrep)
+                    hapmrep_g = global_model.base(hapm_input)
+                loss_rep1 = self.loss_mse(hapmrep_g, hapmrep)
                 loss += loss_rep1
-                mixrep_g = global_model.base(mix_input)
-                mixrep = model.base(mix_input).detach()
-                loss_rep_g = self.loss_mse(mixrep, mixrep_g)
+                hapmrep_g = global_model.base(hapm_input)
+                hapmrep = model.base(hapm_input).detach()
+                loss_rep_g = self.loss_mse(hapmrep, hapmrep_g)
                 loss_g += loss_rep_g
 
-                mix_input = self.hapm(x, self.mixbeta, self.mixpatchb_size)
-                mixlogit = model(mix_input)
+                hapm_input = self.hapm(x, self.hapmbeta, self.hapmpatchb_size)
+                hapmlogit = model(hapm_input)
                 with torch.no_grad():
-                    mixlogit_g = global_model(mix_input)
-                loss_kl = F.kl_div(F.log_softmax(mixlogit / self.T, dim=1), F.softmax(mixlogit_g / self.T, dim=1),
+                    hapmlogit_g = global_model(hapm_input)
+                loss_kl = F.kl_div(F.log_softmax(hapmlogit / self.T, dim=1), F.softmax(hapmlogit_g / self.T, dim=1),
                                    reduction='batchmean', ) * self.T * self.T
                 loss += loss_kl
 
-                mix_input_pred_g = self.hapm(x, self.mixbeta_g, self.mixpatchb_size_g)
-                mixlogit_g = global_model(mix_input_pred_g)
+                hapm_input_pred_g = self.hapm(x, self.hapmbeta_g, self.hapmpatchb_size_g)
+                hapmlogit_g = global_model(hapm_input_pred_g)
                 with torch.no_grad():
-                    mixlogit = model(mix_input_pred_g)
-                loss_kl_pred_g = F.kl_div(F.log_softmax(mixlogit_g / self.T, dim=1),
-                                          F.softmax(mixlogit / self.T, dim=1),
+                    hapmlogit = model(hapm_input_pred_g)
+                loss_kl_pred_g = F.kl_div(F.log_softmax(hapmlogit_g / self.T, dim=1),
+                                          F.softmax(hapmlogit / self.T, dim=1),
                                           reduction='batchmean') * self.T * self.T
                 loss_g += loss_kl_pred_g
                 for i, yy in enumerate(y):
@@ -237,7 +238,7 @@ class clientKWAZ(Client):
         lam_dist = torch.distributions.beta.Beta(alpha, alpha)
         lam = lam_dist.sample((grid_size * grid_size,)).to(x.device)
 
-        mixed_x = x.clone()
+        hapmed_x = x.clone()
         mask_sum = torch.zeros_like(x)
 
         for idx in range(grid_size * grid_size):
@@ -258,10 +259,10 @@ class clientKWAZ(Client):
 
             lam_patch = lam[idx].view(1, 1, 1, 1)
 
-            mixed_patch = lam_patch * x + (1 - lam_patch) * x[perm]
-            mixed_x = mixed_x * (1 - mask) + mixed_patch * mask
+            hapmed_patch = lam_patch * x + (1 - lam_patch) * x[perm]
+            hapmed_x = hapmed_x * (1 - mask) + hapmed_patch * mask
 
-        return mixed_x
+        return hapmed_x
 
     def search_alpha(self, model_s, model_t, train_loader):
         best_a = 0.1
@@ -269,36 +270,28 @@ class clientKWAZ(Client):
         a = self.alphas
         ps = self.ps
 
-        maxdifs = 0.0
+        maxmse = 0.0
 
         model_s.eval()
         model_t.eval()
 
         for i in range(len(a)):
             for j in range(len(ps)):
-
                 if i == 0 and j == 0: continue
-
                 alpha = a[i]
                 patch_size = ps[j]
-
-                difs = 0.0
-
+                total_mse = 0.0
                 for idx, (x, y) in enumerate(train_loader):
                     x = x.to(self.device)
-
-                    mix_input = self.hapm(x, alpha, patch_size)
-
+                    hapm_input = self.hapm(x, alpha, patch_size)
                     with torch.no_grad():
-                        mixrep_s = model_s.base(mix_input)
-                        mixrep_t = model_t.base(mix_input)
+                        hapmrep_s = model_s.base(hapm_input)
+                        hapmrep_t = model_t.base(hapm_input)
+                    mse = self.loss_mse(hapmrep_s, hapmrep_t)
+                    total_mse += mse.item()
 
-                    loss_kl = self.loss_mse(mixrep_s, mixrep_t)
-
-                    difs += loss_kl.item()
-
-                if difs > maxdifs:
-                    maxdifs = difs
+                if total_mse > maxmse:
+                    maxmse = total_mse
                     best_a = alpha
                     best_ps = patch_size
 
@@ -310,37 +303,29 @@ class clientKWAZ(Client):
         b = self.betas
         ps = self.ps
 
-        maxdifs = 0.0
+        maxkl = 0.0
 
         model_s.eval()
         model_t.eval()
 
         for i in range(len(b)):
             for j in range(len(ps)):
-
                 if i == 0 and j == 0: continue
-
                 beta = b[i]
                 patch_size = ps[j]
-
-                difs = 0.0
-
+                total_kl = 0.0
                 for idx, (x, y) in enumerate(train_loader):
                     x = x.to(self.device)
-
-                    mix_input = self.hapm(x, beta, patch_size)
-
+                    hapm_input = self.hapm(x, beta, patch_size)
                     with torch.no_grad():
-                        mixlogit_s = model_s(mix_input)
-                        mixlogit_t = model_t(mix_input)
-
-                    loss_kl = F.kl_div(F.log_softmax(mixlogit_s / self.T, dim=1), F.softmax(mixlogit_t / self.T, dim=1),
+                        hapmlogit_s = model_s(hapm_input)
+                        hapmlogit_t = model_t(hapm_input)
+                    loss_kl = F.kl_div(F.log_softmax(hapmlogit_s / self.T, dim=1), F.softmax(hapmlogit_t / self.T, dim=1),
                                        reduction='batchmean', ) * self.T * self.T
+                    total_kl += loss_kl.item()
 
-                    difs += loss_kl.item()
-
-                if difs > maxdifs:
-                    maxdifs = difs
+                if total_kl > maxkl:
+                    maxkl = total_kl
                     best_b = beta
                     best_ps = patch_size
 
