@@ -7,7 +7,7 @@ import warnings
 import numpy as np
 import logging
 
-from flcore.servers.servertgp import FedTGP
+from flcore.servers.serverKWAZ import FedKWAZ
 
 from utils.result_utils import average_data
 from utils.mem_utils import MemReporter
@@ -126,8 +126,8 @@ def run(args):
             print(model)
 
         # select algorithm
-        if args.algorithm == "FedTGP":
-            server = FedTGP(args, i)
+        if args.algorithm == "FedKWAZ":
+            server = FedKWAZ(args, i)
             
         else:
             raise NotImplementedError
