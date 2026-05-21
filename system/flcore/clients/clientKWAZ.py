@@ -125,8 +125,6 @@ class clientKWAZ(Client):
                 optimizer_g.zero_grad()
                 loss_ce.backward(retain_graph=True)
                 loss_ce_g.backward(retain_graph=True)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
-                torch.nn.utils.clip_grad_norm_(global_model.parameters(), 10)
                 optimizer.step()
                 optimizer_g.step()
 
@@ -190,10 +188,9 @@ class clientKWAZ(Client):
                 optimizer_g.zero_grad()
                 loss.backward(retain_graph=True)
                 loss_g.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
-                torch.nn.utils.clip_grad_norm_(global_model.parameters(), 10)
                 optimizer.step()
                 optimizer_g.step()
+                
         save_item(agg_log(logits1), self.role, 'logits1', self.save_folder_name)
         save_item(agg_pro(protos1), self.role, 'protos1', self.save_folder_name)
         save_item(agg_log(logits2), self.role, 'logits2', self.save_folder_name)
