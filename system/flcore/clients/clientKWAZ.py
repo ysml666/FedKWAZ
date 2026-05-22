@@ -125,6 +125,8 @@ class clientKWAZ(Client):
                 optimizer_g.zero_grad()
                 loss_ce.backward(retain_graph=True)
                 loss_ce_g.backward(retain_graph=True)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
+                torch.nn.utils.clip_grad_norm_(global_model.parameters(), 10)
                 optimizer.step()
                 optimizer_g.step()
 
@@ -188,6 +190,8 @@ class clientKWAZ(Client):
                 optimizer_g.zero_grad()
                 loss.backward(retain_graph=True)
                 loss_g.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
+                torch.nn.utils.clip_grad_norm_(global_model.parameters(), 10)
                 optimizer.step()
                 optimizer_g.step()
                 
